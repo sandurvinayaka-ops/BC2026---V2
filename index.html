@@ -56,7 +56,7 @@
             position: absolute; left: 4vw; top: 0; bottom: 0;
             width: 45vw; z-index: 500; pointer-events: none;
             display: flex; flex-direction: column; justify-content: space-between;
-            padding: 5vh 0 12vh 0; /* Increased bottom padding to accommodate new button */
+            padding: 5vh 0 12vh 0;
         }
 
         .header-box { pointer-events: auto; }
@@ -147,8 +147,8 @@
                 "CINEMATIC ENGINE LOGIC:\n\n" +
                 "• BIRTH COUNT: Synchronized to a global average of 4.34 births per second.\n" +
                 "• GEOMETRY: Renders 110m resolution Natural Earth GeoJSON via D3 Orthographic Projection.\n" +
-                "• PHYSICS: Planets utilize orbital angular velocity based on Delta Time (dt) for display refresh sync.\n" +
-                "• INTERACTION: Features a 'Draggable' state that overrides the Earth's auto-rotation (0.008 deg/ms)."
+                "• PHYSICS: Planets utilize orbital angular velocity based on Delta Time (dt).\n" +
+                "• INTERACTION: Manual rotation overrides auto-spin for 5 seconds."
             );
         }
 
@@ -221,13 +221,27 @@
         }
         setInterval(checkSleep, 30000);
 
+        // --- UPDATED INIT WITH FAIL-SAFE ---
         function init() {
-            d3.json("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson").then(function(data) {
+            d3.json("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson")
+            .then(function(data) {
                 worldGeo = data;
-                for(var i=0; i<data.features.length; i++){ var f = data.features[i]; featureIndex[f.properties.ISO_A3 || f.properties.ADM0_A3] = f; }
-                document.getElementById('loading').style.display='none';
-                requestAnimationFrame(renderLoop); startSimulation();
+                for(var i=0; i<data.features.length; i++){ 
+                    var f = data.features[i]; 
+                    featureIndex[f.properties.ISO_A3 || f.properties.ADM0_A3] = f; 
+                }
+                finalizeInit();
+            })
+            .catch(function(err) {
+                console.warn("Map data failed to load. Running in limited mode.");
+                finalizeInit();
             });
+        }
+
+        function finalizeInit() {
+            document.getElementById('loading').style.display='none';
+            requestAnimationFrame(renderLoop); 
+            startSimulation();
         }
 
         function renderLoop() {
@@ -298,4 +312,53 @@
             context.restore();
             var shad=context.createRadialGradient(px+Math.cos(ang)*p.sz*0.5, py+Math.sin(ang)*p.sz*0.5, 0, px,py,p.sz);
             shad.addColorStop(0,"rgba(0,0,0,0)"); shad.addColorStop(1,"rgba(0,0,0,0.9)");
-            context.beginPath(); context.arc(px,py,p.sz+0.5,0,7); context
+            context.beginPath(); context.arc(px,py,p.sz+0.5,0,7); context.fillStyle=shad; context.fill();
+        }
+
+        function drawPlanet(p,ex,ey,sx,sy,dt){
+            p.ang += p.spd*dt*0.1; var px=ex+Math.cos(p.ang)*p.d, py=ey+Math.sin(p.ang)*p.d*0.7;
+            var dx=px-sx, dy=py-sy, ang=Math.atan2(dy,dx);
+            context.save(); context.translate(px,py);
+            var g=context.createRadialGradient(-p.sz*0.3,-p.sz*0.3,0,0,0,p.sz); g.addColorStop(0,p.col); g.addColorStop(1,"#000");
+            context.beginPath(); context.arc(0,0,p.sz,0,7); context.fillStyle=g; context.fill();
+            context.restore();
+            var shad=context.createRadialGradient(px+Math.cos(ang)*p.sz*0.5, py+Math.sin(ang)*p.sz*0.5, 0, px,py,p.sz);
+            shad.addColorStop(0,"rgba(0,0,0,0)"); shad.addColorStop(1,"rgba(0,0,0,0.9)");
+            context.beginPath(); context.arc(px,py,p.sz+0.5,0,7); context.fillStyle=shad; context.fill();
+        }
+
+        function updateComets() {
+            if (Math.random() > 0.996) comets.push({ x:Math.random()*w, y:-50, vx:-14, vy:10, life:1 });
+            for (var i=0; i<comets.length; i++) {
+                var c = comets[i]; var g = context.createLinearGradient(c.x,c.y,c.x-c.vx*12,c.y-c.vy*12);
+                g.addColorStop(0,"white"); g.addColorStop(1,"transparent");
+                context.strokeStyle=g; context.lineWidth=4; context.beginPath(); context.moveTo(c.x,c.y); context.lineTo(c.x+120,c.y-100); context.stroke();
+                c.x+=c.vx; c.y+=c.vy; c.life-=0.008; if(c.life<=0){ comets.splice(i,1); i--; }
+            }
+        }
+
+        function startSimulation() {
+            setInterval(function() {
+                var now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                var elapsed = (Date.now() - start) / 1000;
+                document.getElementById('birthCount').innerText = Math.floor(elapsed * BIRTH_RATE).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                document.getElementById('clock').innerText = now.toLocaleTimeString('en-GB');
+                document.getElementById('bar').style.width = (elapsed / 86400 * 100) + "%";
+                if (worldGeo) {
+                    var keys = Object.keys(featureIndex); flashingISO[keys[Math.floor(Math.random()*keys.length)]] = Date.now();
+                }
+            }, 1000 / BIRTH_RATE);
+        }
+
+        var field = document.getElementById('starfield');
+        for (var i = 0; i < 70; i++) {
+            var s = document.createElement('div'); s.className = 'star';
+            s.style.width = s.style.height = (1 + Math.random()*2) + 'px';
+            s.style.left = Math.random()*100 + '%'; s.style.top = Math.random()*100 + '%';
+            s.style.setProperty('--t', (2 + Math.random()*3) + 's');
+            field.appendChild(s);
+        }
+        window.onresize = setSizes; init();
+    </script>
+</body>
+</html>
